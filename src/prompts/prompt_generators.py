@@ -11,23 +11,9 @@ class PromptGenerator(metaclass=ABCMeta):
 
     @abstractmethod
     def generate_prompt(self, item):
-        """
-        Генерирует промпт на основе входных данных.
-        Args:
-            item (dict): Данные для генерации промпта.
-        Returns:
-            str: Сгенерированный промпт.
-        """
         pass
 
     def parse_jsonl(self, file_path):
-        """
-        Читает JSONL файл и возвращает список объектов JSON.
-        Args:
-            file_path (str): Путь к JSONL файлу.
-        Returns:
-            list: Список объектов JSON.
-        """
         prompts = []
         with open(file_path, "r", encoding="utf-8") as file:
             for line in file:
@@ -36,18 +22,15 @@ class PromptGenerator(metaclass=ABCMeta):
         return prompts
 
     def load_data(self, file_path):
-        """Загружает данные из JSONL файла для итерации."""
         self.data = self.parse_jsonl(file_path)
         self.current_index = 0
         return self
 
     def __iter__(self):
-        """Возвращает себя как итератор."""
         self.current_index = 0
         return self
 
     def __next__(self):
-        """Возвращает следующий промпт."""
         if self.current_index >= len(self.data):
             raise StopIteration
 
@@ -69,32 +52,13 @@ class SinglePromptGenerator(PromptGenerator):
     """Класс для генерации промптов с использованием взаимозаменяемых стратегий."""
 
     def __init__(self, strategy=None):
-        """
-        Инициализирует генератор промптов с заданной стратегией.
-        Args:
-            strategy : Стратегия обработки промптов.
-        """
         super().__init__()
         self.strategy = strategy
 
     def set_strategy(self, strategy):
-        """
-        Устанавливает новую стратегию обработки промптов.
-
-        Args:
-            strategy (PromptStrategy): Новая стратегия обработки.
-        """
         self.strategy = strategy
 
     def generate_prompt(self, item):
-        """
-        Генерирует промпт, используя выбранную стратегию.
-
-        Args:
-            item (dict): Словарь с ключами 'instruction' и 'inputs'.
-        Returns:
-            str: Сгенерированный промпт.
-        """
         instruction = item.get("instruction")
         inputs = item.get("inputs", {})
 

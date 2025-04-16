@@ -16,49 +16,36 @@ class ModelClient:
         endpoint: str = "/api/v1/generate",
     ):
         """
-        Инициализирует клиент для взаимодействия с моделью.
+        Инициализация клиента для запросов к модели.
         Args:
             host (str): Хост, где запущен сервер с моделью.
             port (int): Порт, на котором слушает сервер.
             endpoint (str): Эндпоинт для запросов к модели.
         """
         self.base_url = f"http://{host}:{port}{endpoint}"
-        self.headers = {
-            "Content-Type": "application/json",
-        }
+        self.headers = {"Content-Type": "application/json"}
 
     def send_request(
         self,
         prompt: str,
         max_tokens: int = 512,
-        temperature: float = 0.7,
-        deterministic: bool = False,
     ) -> Dict[str, Any]:
         """
-        Отправляет запрос к модели и возвращает полученный ответ.
+        Отправляет один запрос к модели.
         Args:
             prompt (str): Промпт для модели.
             max_tokens (int): Максимальное количество токенов в ответе.
-            temperature (float): Температура для семплирования.
-            deterministic (bool): Флаг для детерминистической генерации.
 
         Returns:
-            Dict[str, Any]: Ответ модели в формате словаря.
+            Dict[str, Any]: Ответ модели.
         """
-        if deterministic:
-            data = {
-                "prompt": prompt,
-                "max_tokens": max_tokens,
-                "temperature": 0.0,
-                "top_p": 1.0,
-                "deterministic": True,
-            }
-        else:
-            data = {
-                "prompt": prompt,
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-            }
+        data = {
+            "prompt": prompt,
+            "max_tokens": max_tokens,
+            "temperature": 0.0,
+            "top_p": 1.0,
+            "deterministic": True,
+        }
 
         try:
             response = requests.post(
@@ -78,6 +65,7 @@ class ModelClient:
 
         except Exception as e:
             print(e)
+            return {"error": str(e)}
 
 
 class BatchModelClient(ModelClient):
@@ -102,28 +90,60 @@ class BatchModelClient(ModelClient):
         """
         super().__init__(host, port, endpoint)
         self.batch_size = batch_size
-        self.determ_url = f"http://{host}:{port}/api/v1/generate-determ"
+
+    def send_batch_request(
+        self,
+        prompts: List[str],
+        max_tokens: int = 512,
+    ) -> List[Dict[str, Any]]:
+        """
+        Отправляет батч запросов к модели.
+        Args:
+            prompts (List[str]): Список промптов для модели.
+            max_tokens (int): Максимальное количество токенов в ответе.
+
+        Returns:
+            List[Dict[str, Any]]: Список ответов модели.
+        """
+        data = {
+            "prompts": prompts,
+            "max_tokens": max_tokens,
+            "temperature": 0.0,
+            "top_p": 1.0,
+        }
+
+        try:
+            response = requests.post(
+                self.base_url,
+                headers=self.headers,
+                data=json.dumps(data)
+            )
+
+            response.raise_for_status()
+            results = response.json()
+            
+            return results
+        except Exception as e:
+            print(f"Ошибка при отправке батча запросов: {e}")
+            return [{"error": str(e)} for _ in range(len(prompts))]
 
     def process_dataset(
         self,
         generator: PromptGenerator,
         max_tokens: int = 512,
-        temperature: float = 0.7,
-        deterministic: bool = True,
     ) -> List[Dict[str, Any]]:
         """
         Обрабатывает набор данных из генератора промптов.
         Args:
             generator (PromptGenerator): Генератор промптов.
             max_tokens (int): Максимальное количество токенов в ответе.
-            temperature (float): Температура для семплирования.
-            deterministic (bool): Флаг для детерминистической генерации.
 
         Returns:
             List[Dict[str, Any]]: Список ответов модели с дополнительными метаданными.
         """
         results = []
         current_batch = []
+        batch_prompts = []
         batch_index = 0
 
         for item in generator:
@@ -136,20 +156,18 @@ class BatchModelClient(ModelClient):
                     "expected_output": item.get("output", ""),
                 }
             )
+            batch_prompts.append(prompt)
 
             if len(current_batch) >= self.batch_size:
-                batch_results = self._process_batch(
-                    current_batch, max_tokens, temperature, deterministic
-                )
+                batch_results = self._process_batch(current_batch, batch_prompts, max_tokens)
                 results.extend(batch_results)
+                
                 current_batch = []
+                batch_prompts = []
                 batch_index += 1
                 print(f"Обработан пакет {batch_index}")
-
         if current_batch:
-            batch_results = self._process_batch(
-                current_batch, max_tokens, temperature, deterministic
-            )
+            batch_results = self._process_batch(current_batch, batch_prompts, max_tokens)
             results.extend(batch_results)
             print(f"Обработан финальный пакет {batch_index + 1}")
 
@@ -158,70 +176,31 @@ class BatchModelClient(ModelClient):
     def _process_batch(
         self,
         batch: List[Dict[str, Any]],
+        batch_prompts: List[str],
         max_tokens: int,
-        temperature: float,
-        deterministic: bool = True,
     ) -> List[Dict[str, Any]]:
         """
         Обрабатывает один пакет запросов.
         Args:
             batch (List[Dict[str, Any]]): Пакет запросов для обработки.
+            batch_prompts (List[str]): Список промптов для отправки на сервер.
             max_tokens (int): Максимальное количество токенов в ответе.
-            temperature (float): Температура для семплирования.
-            deterministic (bool): Флаг для детерминистической генерации.
 
         Returns:
             List[Dict[str, Any]]: Результаты обработки пакета.
         """
+        batch_responses = self.send_batch_request(batch_prompts, max_tokens)
         results = []
 
-        for item in batch:
-            if deterministic and max_tokens <= 3:
-                response = self._send_determ_request(item["prompt"])
-            else:
-                response = self.send_request(
-                    item["prompt"], max_tokens, temperature, deterministic
-                )
-
+        for item, response in zip(batch, batch_responses):
             result = {
                 "index": item["index"],
                 "prompt": item["prompt"],
                 "domain": item.get("domain", ""),
                 "expected_output": item.get("expected_output", ""),
-                "model_output": response.get("output", ""),
+                "model_output": response.get("text", ""),
                 "error": response.get("error", None),
             }
-
             results.append(result)
 
         return results
-
-    def _send_determ_request(self, prompt: str) -> Dict[str, Any]:
-        """
-        Отправляет запрос на эндпоинт для детерминистической генерации одной буквы.
-        Args:
-            prompt (str): Промпт для модели.
-        Returns:
-            Dict[str, Any]: Ответ модели в формате словаря.
-        """
-        data = {"prompt": prompt}
-
-        try:
-            response = requests.post(
-                self.determ_url,
-                headers=self.headers,
-                data=json.dumps(data),
-                timeout=120,
-            )
-
-            response.raise_for_status()
-            result = response.json()
-
-            if "letter" in result:
-                return {"output": result["letter"]}
-            else:
-                return result
-
-        except Exception as e:
-            print(f"Ошибка при запросе к детерминистическому эндпоинту: {e}")
-            return {"error": str(e)}

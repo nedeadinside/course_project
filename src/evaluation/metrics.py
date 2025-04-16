@@ -4,43 +4,13 @@ import re
 
 
 class Metric(ABC):
-    """
-    Абстрактный базовый класс для метрик оценки ответов модели.
-    """
-
     @abstractmethod
     def calculate(self, results: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """
-        Вычисляет метрику на основе результатов оценки.
-
-        Args:
-            results (List[Dict[str, Any]]): Список результатов оценки ответов модели.
-                Каждый элемент содержит как минимум ключи 'parsed_answer' и 'expected_answer'.
-
-        Returns:
-            Dict[str, Any]: Результат вычисления метрики.
-        """
         pass
 
 
 class AccuracyMetric(Metric):
-    """
-    Метрика точности (accuracy) - доля правильных ответов.
-    """
-
     def calculate(self, results: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """
-        Вычисляет точность на основе результатов оценки.
-
-        Args:
-            results (List[Dict[str, Any]]): Список результатов с полем 'is_correct'.
-
-        Returns:
-            Dict[str, Any]: Словарь с результатами:
-                - total_examples: общее количество примеров
-                - correct_answers: количество правильных ответов
-                - accuracy: доля правильных ответов
-        """
         if not results:
             return {"total_examples": 0, "correct_answers": 0, "accuracy": 0.0}
 
@@ -55,20 +25,7 @@ class AccuracyMetric(Metric):
 
 
 class DomainAccuracyMetric(Metric):
-    """
-    Метрика точности по доменам (областям) заданий.
-    """
-
     def calculate(self, results: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """
-        Вычисляет точность по доменам на основе результатов оценки.
-
-        Args:
-            results (List[Dict[str, Any]]): Список результатов с полями 'is_correct' и 'domain'.
-
-        Returns:
-            Dict[str, Any]: Словарь с результатами по доменам.
-        """
         if not results:
             return {"domain_stats": {}}
 
@@ -91,32 +48,11 @@ class DomainAccuracyMetric(Metric):
 
 
 class ExactMatchMetric(Metric):
-    """
-    Метрика точного соответствия ответа модели и ожидаемого ответа.
-    """
-
-    def __init__(self, case_sensitive: bool = True, normalize: bool = False):
-        """
-        Инициализирует метрику точного соответствия.
-
-        Args:
-            case_sensitive (bool): Учитывать ли регистр при сравнении ответов.
-            normalize (bool): Применять ли нормализацию к ответам перед сравнением
-                             (удаление лишних пробелов, знаков препинания и т.д.).
-        """
+    def __init__(self, case_sensitive: bool = False, normalize: bool = True):
         self.case_sensitive = case_sensitive
         self.normalize = normalize
 
     def _normalize_text(self, text: str) -> str:
-        """
-        Нормализует текст для сравнения.
-
-        Args:
-            text (str): Исходный текст.
-
-        Returns:
-            str: Нормализованный текст.
-        """
         if not self.case_sensitive:
             text = text.lower()
 
@@ -127,15 +63,6 @@ class ExactMatchMetric(Metric):
         return text
 
     def calculate(self, results: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """
-        Вычисляет метрику точного соответствия.
-
-        Args:
-            results (List[Dict[str, Any]]): Список результатов.
-
-        Returns:
-            Dict[str, Any]: Результат вычисления метрики.
-        """
         total_evaluated = len(results)
         correct_count = 0
 
@@ -164,26 +91,10 @@ class ExactMatchMetric(Metric):
 
 
 class F1ScoreMetric(Metric):
-    """
-    Метрика F1-меры для бинарной классификации.
-    """
+    def __init__(self, pos_label=True):
+        self.pos_label = pos_label
 
     def calculate(self, results: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """
-        Вычисляет F1-меру для бинарной классификации.
-
-        Args:
-            results (List[Dict[str, Any]]): Список результатов с полями 'is_correct' и 'expected_answer'.
-
-        Returns:
-            Dict[str, Any]: Словарь с результатами:
-                - precision: точность (precision)
-                - recall: полнота (recall)
-                - f1_score: F1-мера
-                - true_positives: количество истинно положительных результатов
-                - false_positives: количество ложно положительных результатов
-                - false_negatives: количество ложно отрицательных результатов
-        """
         if not results:
             return {
                 "precision": 0.0,
@@ -192,43 +103,31 @@ class F1ScoreMetric(Metric):
                 "true_positives": 0,
                 "false_positives": 0,
                 "false_negatives": 0,
+                "true_negatives": 0,
                 "total_examples": 0,
             }
 
         true_positives = 0
         false_positives = 0
         false_negatives = 0
+        true_negatives = 0
 
         for result in results:
-            parsed_answer = result.get("parsed_answer", "")
-            expected_answer = result.get("expected_answer", "")
-            is_correct = result.get("is_correct", False)
-
-            # Обработка случая, когда ответы должны совпадать
-            if expected_answer == parsed_answer:
-                if is_correct:
-                    true_positives += 1
-                else:
-                    false_negatives += 1
+            prediction = result.get("is_correct", False)
+            expected = self.pos_label
+            
+            if prediction == expected == self.pos_label:
+                true_positives += 1
+            elif prediction == self.pos_label and expected != self.pos_label:
+                false_positives += 1
+            elif prediction != self.pos_label and expected == self.pos_label:
+                false_negatives += 1
             else:
-                if is_correct:
-                    false_positives += 1
+                true_negatives += 1
 
-        precision = (
-            true_positives / (true_positives + false_positives)
-            if true_positives + false_positives > 0
-            else 0
-        )
-        recall = (
-            true_positives / (true_positives + false_negatives)
-            if true_positives + false_negatives > 0
-            else 0
-        )
-        f1 = (
-            2 * precision * recall / (precision + recall)
-            if precision + recall > 0
-            else 0
-        )
+        precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0
+        recall = true_positives / (true_positives + false_negatives) if (true_positives + false_negatives) > 0 else 0
+        f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
 
         return {
             "precision": precision,
@@ -237,27 +136,15 @@ class F1ScoreMetric(Metric):
             "true_positives": true_positives,
             "false_positives": false_positives,
             "false_negatives": false_negatives,
+            "true_negatives": true_negatives,
             "total_examples": len(results),
         }
 
 
 class CompositeMetric(Metric):
-    """
-    Комбинированная метрика, которая применяет несколько метрик и объединяет их результаты.
-    """
-
     def __init__(self, metrics: List[Metric], metric_names: Optional[List[str]] = None):
-        """
-        Инициализирует комбинированную метрику.
-
-        Args:
-            metrics (List[Metric]): Список метрик для применения.
-            metric_names (Optional[List[str]]): Имена метрик для использования в качестве префиксов.
-                                             Если не указаны, используются имена классов.
-        """
         self.metrics = metrics
 
-        # Автоматически генерируем имена метрик на основе их классов, если не указаны
         if metric_names is None:
             self.metric_names = [self._get_metric_name(metric) for metric in metrics]
         else:
@@ -269,28 +156,10 @@ class CompositeMetric(Metric):
             )
 
     def _get_metric_name(self, metric: Metric) -> str:
-        """
-        Генерирует имя метрики на основе её класса.
-
-        Args:
-            metric (Metric): Метрика.
-
-        Returns:
-            str: Имя метрики.
-        """
         class_name = metric.__class__.__name__
         return class_name.replace("Metric", "").lower()
 
     def calculate(self, results: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """
-        Вычисляет все метрики и объединяет их результаты.
-
-        Args:
-            results (List[Dict[str, Any]]): Список результатов.
-
-        Returns:
-            Dict[str, Any]: Объединенные результаты всех метрик.
-        """
         combined_results = {}
 
         for i, (metric, name) in enumerate(zip(self.metrics, self.metric_names)):

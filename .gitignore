@@ -3,7 +3,7 @@
 
 *.parquet
 data/raw
-
+vllm_inference
 venv/
 env/
 .venv/

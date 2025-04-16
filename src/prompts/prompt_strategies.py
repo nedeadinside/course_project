@@ -6,16 +6,6 @@ class PromptStrategy(metaclass=ABCMeta):
 
     @abstractmethod
     def process(self, instruction, inputs):
-        """
-        Обрабатывает инструкцию и входные данные для создания промпта.
-
-        Args:
-            instruction (str): Инструкция для промпта.
-            inputs (dict): Входные данные для заполнения промпта.
-
-        Returns:
-            str: Сгенерированный промпт.
-        """
         pass
 
 
@@ -23,7 +13,6 @@ class OptionsPromptStrategy(PromptStrategy):
     """Стратегия для обработки промптов с вариантами ответов."""
 
     def process(self, instruction, inputs):
-        """Формирует промпт с вариантами ответов."""
         inputs_copy = inputs.copy()
 
         options = []
