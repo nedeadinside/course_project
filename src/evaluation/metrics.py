@@ -1,6 +1,10 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Literal
 import re
+
+from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
+from rouge_score import rouge_scorer
+from nltk.tokenize import word_tokenize
 
 
 class Metric(ABC):
@@ -115,7 +119,7 @@ class F1ScoreMetric(Metric):
         for result in results:
             prediction = result.get("is_correct", False)
             expected = self.pos_label
-            
+
             if prediction == expected == self.pos_label:
                 true_positives += 1
             elif prediction == self.pos_label and expected != self.pos_label:
@@ -125,9 +129,21 @@ class F1ScoreMetric(Metric):
             else:
                 true_negatives += 1
 
-        precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0
-        recall = true_positives / (true_positives + false_negatives) if (true_positives + false_negatives) > 0 else 0
-        f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+        precision = (
+            true_positives / (true_positives + false_positives)
+            if (true_positives + false_positives) > 0
+            else 0
+        )
+        recall = (
+            true_positives / (true_positives + false_negatives)
+            if (true_positives + false_negatives) > 0
+            else 0
+        )
+        f1 = (
+            2 * (precision * recall) / (precision + recall)
+            if (precision + recall) > 0
+            else 0
+        )
 
         return {
             "precision": precision,
@@ -171,3 +187,120 @@ class CompositeMetric(Metric):
                 combined_results[f"{prefix}{key}"] = value
 
         return combined_results
+
+
+class BLEUMetric(Metric):
+    SupportedLanguage = Literal["english", "russian"]
+
+    def __init__(
+        self,
+        weights=(0.25, 0.25, 0.25, 0.25),
+        smoothing_function=None,
+        language: SupportedLanguage = "english",
+    ):
+        self.weights = weights
+        if smoothing_function is None:
+            self.smoothing_function = SmoothingFunction().method1
+        else:
+            self.smoothing_function = smoothing_function
+        self.language = language
+
+    def _tokenize(self, text: str) -> List[str]:
+        return word_tokenize(text.lower(), language=self.language)
+
+    def calculate(self, results: List[Dict[str, Any]]) -> Dict[str, Any]:
+        if not results:
+            return {"bleu_score": 0.0, "total_examples": 0}
+
+        total_score = 0.0
+        bleu_scores = []
+
+        for result in results:
+            reference = result.get("expected_answer", "")
+            hypothesis = result.get("parsed_answer", "")
+
+            reference_tokens = self._tokenize(reference)
+            hypothesis_tokens = self._tokenize(hypothesis)
+
+            if len(reference_tokens) == 0 or len(hypothesis_tokens) == 0:
+                score = 0.0
+            else:
+                score = sentence_bleu(
+                    [reference_tokens],
+                    hypothesis_tokens,
+                    weights=self.weights,
+                    smoothing_function=self.smoothing_function,
+                )
+
+            total_score += score
+            bleu_scores.append(score)
+
+        avg_score = total_score / len(results)
+
+        return {
+            "bleu_score": avg_score,
+            "individual_scores": bleu_scores,
+            "total_examples": len(results),
+        }
+
+
+class ROUGEMetric(Metric):
+    def __init__(
+        self,
+        rouge_types=None,
+        use_stemmer=True,
+    ):
+        if rouge_types is None:
+            self.rouge_types = ["rouge1", "rouge2", "rougeL"]
+        else:
+            self.rouge_types = rouge_types
+
+        self.scorer = rouge_scorer.RougeScorer(
+            self.rouge_types, use_stemmer=use_stemmer
+        )
+
+    def calculate(self, results: List[Dict[str, Any]]) -> Dict[str, Any]:
+        if not results:
+            result_dict = {}
+            for rouge_type in self.rouge_types:
+                result_dict[f"{rouge_type}_precision"] = 0.0
+                result_dict[f"{rouge_type}_recall"] = 0.0
+                result_dict[f"{rouge_type}_f1"] = 0.0
+            result_dict["total_examples"] = 0
+            return result_dict
+
+        rouge_precision = {rouge_type: [] for rouge_type in self.rouge_types}
+        rouge_recall = {rouge_type: [] for rouge_type in self.rouge_types}
+        rouge_f1 = {rouge_type: [] for rouge_type in self.rouge_types}
+
+        for result in results:
+            reference = result.get("expected_answer", "")
+            hypothesis = result.get("parsed_answer", "")
+
+            if not reference or not hypothesis:
+                continue
+
+            scores = self.scorer.score(reference, hypothesis)
+
+            for rouge_type in self.rouge_types:
+                rouge_precision[rouge_type].append(scores[rouge_type].precision)
+                rouge_recall[rouge_type].append(scores[rouge_type].recall)
+                rouge_f1[rouge_type].append(scores[rouge_type].fmeasure)
+
+        result_dict = {}
+        for rouge_type in self.rouge_types:
+            precisions = rouge_precision[rouge_type]
+            avg_precision = sum(precisions) / len(precisions) if precisions else 0.0
+            result_dict[f"{rouge_type}_precision"] = avg_precision
+
+            recalls = rouge_recall[rouge_type]
+            avg_recall = sum(recalls) / len(recalls) if recalls else 0.0
+            result_dict[f"{rouge_type}_recall"] = avg_recall
+
+            f1_scores = rouge_f1[rouge_type]
+            avg_f1 = sum(f1_scores) / len(f1_scores) if f1_scores else 0.0
+            result_dict[f"{rouge_type}_f1"] = avg_f1
+
+        result_dict["total_examples"] = len(results)
+
+        return result_dict

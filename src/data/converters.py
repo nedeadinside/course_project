@@ -60,6 +60,60 @@ class CsvToJsonlConverter(DataConverter, metaclass=ABCMeta):
             return False
 
 
+class JsonlToJsonlConverter(DataConverter, metaclass=ABCMeta):
+    def read_jsonl(self) -> List[Dict[str, Any]]:
+        data = []
+        try:
+            with open(self.input_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip():
+                        data.append(json.loads(line))
+            return data
+        except Exception as e:
+            print(f"Ошибка при чтении JSONL файла: {e}")
+            return []
+    
+    def write_jsonl(self, data: List[Dict[str, Any]]) -> bool:
+        try:
+            with open(self.output_path, "w", encoding="utf-8") as f:
+                for item in data:
+                    f.write(json.dumps(item, ensure_ascii=False) + "\n")
+            return True
+        except Exception as e:
+            print(f"Ошибка при записи JSONL: {e}")
+            return False
+    
+    @abstractmethod
+    def process_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
+        pass
+    
+    def convert(self) -> bool:
+        if not self.validate_input():
+            print(f"Входной файл не существует: {self.input_path}")
+            return False
+        
+        try:
+            input_data = self.read_jsonl()
+            if not input_data:
+                print(f"Нет данных для обработки в файле: {self.input_path}")
+                return False
+            
+            output_data = []
+            for item in input_data:
+                processed_item = self.process_item(item)
+                output_data.append(processed_item)
+            
+            success = self.write_jsonl(output_data)
+            if success:
+                print(
+                    f"Преобразовано {len(output_data)} записей из JSONL. Результат сохранен в {self.output_path}"
+                )
+            return success
+        except Exception as e:
+            print(f"Ошибка при преобразовании JSONL: {e}")
+            return False
+
+
 class MultipleChoiceConverter:
     """Миксин для работы с вариантами выбора ответов"""
     
@@ -144,4 +198,25 @@ class MmluProCsvToJsonlConverter(CsvToJsonlConverter, MultipleChoiceConverter):
                 "id": int(row["question_id"]),
                 "domain": row["src"].replace("ori_mmlu-", ""),
             },
+        }
+
+
+class XLSumJsonlConverter(JsonlToJsonlConverter):
+    def process_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
+        article_id = item.get("id", "")
+        title = item.get("title", "")
+        text = item.get("text", "")
+        summary = item.get("summary", "")
+        
+        return {
+            "instruction": self.instruction,
+            "inputs": {
+                "title": title,
+                "text": text
+            },
+            "output": summary,
+            "meta": {
+                "id": article_id,
+                "source": "XLSum"
+            }
         }

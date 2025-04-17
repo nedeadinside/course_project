@@ -1,4 +1,6 @@
+from .prompt_strategies import PromptStrategy
 from abc import ABCMeta, abstractmethod
+
 import json
 
 
@@ -63,3 +65,51 @@ class SinglePromptGenerator(PromptGenerator):
         inputs = item.get("inputs", {})
 
         return self.strategy.process(instruction, inputs)
+
+
+class FewShotPromptGenerator(PromptGenerator):
+    def __init__(self, strategy: PromptStrategy, n_shots: int = 5):
+        super().__init__()
+        if n_shots < 1:
+            raise ValueError("Количество few-shot примеров (n_shots) должно быть не менее 1")
+        if strategy is None:
+            raise ValueError("Необходимо предоставить стратегию форматирования промпта")
+        self.strategy = strategy
+        self.n_shots = n_shots
+        self.few_shot_examples = []
+
+    def load_data(self, file_path):
+        super().load_data(file_path)
+        if len(self.data) <= self.n_shots:
+            raise ValueError(
+                f"Недостаточно данных ({len(self.data)}) для создания {self.n_shots} few-shot примеров."
+            )
+        
+        self.few_shot_examples = self.data[:self.n_shots]
+        self.data = self.data[self.n_shots:]
+        self.current_index = 0
+        return self
+
+    def _format_example(self, item, include_answer: bool) -> str:
+        """Форматирует один пример с использованием заданной стратегии."""
+        instruction = item.get("instruction", "")
+        inputs = item.get("inputs", {})
+        answer = item.get("output", "")
+
+        formatted_prompt = self.strategy.process(instruction, inputs)
+
+        if include_answer:
+            return f"<client>\n{formatted_prompt}\n<client>\n<model>\n({answer})\n<model>"
+        else:
+            return f"<client>\n{formatted_prompt}\n<client>\n<model>"
+
+    def generate_prompt(self, item):
+        """Генерирует полный few-shot промпт."""
+        few_shot_prompts = [
+            self._format_example(example, include_answer=True)
+            for example in self.few_shot_examples
+        ]
+
+        current_prompt = self._format_example(item, include_answer=False)
+        full_prompt = "\n\n".join(few_shot_prompts + [current_prompt])
+        return full_prompt

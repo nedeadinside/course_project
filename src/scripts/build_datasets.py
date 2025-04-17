@@ -9,8 +9,13 @@ from src.data.dataset_builder import DatasetBuilder
 from src.data.converters import (
     MmluCsvToJsonlConverter,
     MmluProCsvToJsonlConverter,
+    XLSumJsonlConverter,
 )
-from src.data.config import MMLU_INSTRUCTION_TEMPLATE
+from src.data.config import (
+    MMLU_INSTRUCTION_TEMPLATE,
+    RUSSIAN_SUMMARIZATION_TEMPLATE,
+    ENGLISH_SUMMARIZATION_TEMPLATE,
+)
 
 
 DEFAULT_INSTRUCTION = (
@@ -38,6 +43,7 @@ def main():
 
     builder.register_converter("mmlu_csv", MmluCsvToJsonlConverter)
     builder.register_converter("mmlu_pro_csv", MmluProCsvToJsonlConverter)
+    builder.register_converter("xlsum_jsonl", XLSumJsonlConverter)
 
     # MMLU
     mmlu_input_path = os.path.join(raw_data_dir, "mmlu", "mmlu_all_test.csv")
@@ -73,6 +79,34 @@ def main():
                 converter_name="mmlu_pro_csv",
                 output_filename=os.path.join("mmlu_pro", "mmlu_pro.jsonl"),
                 instruction=MMLU_INSTRUCTION_TEMPLATE,
+            )
+
+    # XLSum - English
+    xlsum_dir = os.path.join(raw_data_dir, "XLSum")
+    xlsum_output_dir = os.path.join(processed_data_dir, "xlsum")
+    os.makedirs(xlsum_output_dir, exist_ok=True)
+
+    if os.path.exists(xlsum_dir):
+        # Обработка английских данных XLSum
+        english_xlsum_file = os.path.join(xlsum_dir, "english_test.jsonl")
+        if os.path.exists(english_xlsum_file):
+            builder.add_dataset(
+                name="xlsum_english",
+                input_path=english_xlsum_file,
+                converter_name="xlsum_jsonl",
+                output_filename=os.path.join("xlsum", "xlsum_english.jsonl"),
+                instruction=ENGLISH_SUMMARIZATION_TEMPLATE,
+            )
+
+        # Обработка русских данных XLSum
+        russian_xlsum_file = os.path.join(xlsum_dir, "russian_test.jsonl")
+        if os.path.exists(russian_xlsum_file):
+            builder.add_dataset(
+                name="xlsum_russian",
+                input_path=russian_xlsum_file,
+                converter_name="xlsum_jsonl",
+                output_filename=os.path.join("xlsum", "xlsum_russian.jsonl"),
+                instruction=RUSSIAN_SUMMARIZATION_TEMPLATE,
             )
 
     print("Начинаем сборку наборов данных...")

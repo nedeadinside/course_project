@@ -23,3 +23,11 @@ class OptionsPromptStrategy(PromptStrategy):
 
         inputs_copy["options"] = "\n".join(options)
         return instruction.format(**inputs_copy)
+
+
+class GenerationPromptStrategy(PromptStrategy):
+    """Стратегия для обработки промптов для генерации текста."""
+
+    def process(self, instruction, inputs):
+        formatted_instruction = instruction.format(**inputs)
+        return formatted_instruction

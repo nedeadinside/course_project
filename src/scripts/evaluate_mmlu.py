@@ -8,7 +8,7 @@ project_root = Path(__file__).parents[2]
 sys.path.append(str(project_root))
 
 from src.client.model_client import BatchModelClient
-from src.prompts.prompt_generators import SinglePromptGenerator
+from src.prompts.prompt_generators import FewShotPromptGenerator
 from src.prompts.prompt_strategies import OptionsPromptStrategy
 from src.evaluation.evaluator import Evaluator
 from src.evaluation.parsers import MultipleChoiceParser
@@ -88,16 +88,18 @@ def main():
         port=args.port,
         endpoint=args.endpoint,
         batch_size=args.batch_size,
+        max_tokens=args.max_tokens,
+        temperature=0.0,
+        top_p=1.0,
     )
 
     prompt_strategy = OptionsPromptStrategy()
-    prompt_generator = SinglePromptGenerator(strategy=prompt_strategy)
+    prompt_generator = FewShotPromptGenerator(strategy=prompt_strategy, n_shots=3)
 
     print(f"Загрузка данных MMLU из файла: {mmlu_data_path}")
     prompt_generator.load_data(mmlu_data_path)
 
     print("Инициализация парсера и метрик для оценки ответов модели...")
-
 
     parser = MultipleChoiceParser(case_sensitive=False)
 
@@ -116,13 +118,9 @@ def main():
     print(f"Начинаем оценку модели на наборе данных MMLU...")
     print(f"Параметры: batch_size={args.batch_size}, max_tokens={args.max_tokens}")
 
-    results = client.process_dataset(
-        generator=prompt_generator,
-        max_tokens=args.max_tokens,
-    )
+    results = client.process_dataset(generator=prompt_generator)
 
     print(f"Обработка завершена. Получено {len(results)} результатов.")
-
 
     evaluation_results = evaluator.evaluate_dataset(results)
 
