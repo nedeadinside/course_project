@@ -116,7 +116,7 @@ def main():
     )
 
     prompt_strategy = GenerationPromptStrategy()
-    prompt_generator = SinglePromptGenerator(strategy=prompt_strategy, n_shots=0)
+    prompt_generator = SinglePromptGenerator(strategy=prompt_strategy)
     prompt_generator.load_data(xlsum_data_path)
 
     print("Инициализация парсера и метрик для оценки ответов модели...")
@@ -138,10 +138,7 @@ def main():
     print(f"Начинаем оценку модели на наборе данных XLSum ({args.language})...")
     print(f"Параметры: batch_size={args.batch_size}, max_tokens={args.max_tokens}")
 
-    results = client.process_dataset(
-        generator=prompt_generator,
-        max_tokens=args.max_tokens,
-    )
+    results = client.process_dataset(generator=prompt_generator)
 
     evaluation_results = evaluator.evaluate_dataset(results)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
